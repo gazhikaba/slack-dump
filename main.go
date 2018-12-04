@@ -16,6 +16,7 @@ import (
 	"github.com/codegangsta/cli"
 	"github.com/jhoonb/archivex"
 	"github.com/nlopes/slack"
+	"github.com/avast/retry-go"
 )
 
 func check(e error) {
@@ -247,7 +248,10 @@ func fetchGroupHistory(api *slack.Client, ID string) []slack.Message {
 	history, err := api.GetGroupHistory(ID, historyParams)
 	check(err)
 	messages := history.Messages
-	latest := messages[len(messages)-1].Timestamp
+	var latest string
+	if len(messages) > 1 {
+		latest = messages[len(messages)-1].Timestamp
+	}
 	for {
 		if history.HasMore != true {
 			break
@@ -272,7 +276,15 @@ func fetchChannelHistory(api *slack.Client, ID string) []slack.Message {
 	historyParams.Count = 1000
 
 	// Fetch History
-	history, err := api.GetChannelHistory(ID, historyParams)
+	var history *slack.History
+	var err error
+	err = retry.Do(func() error {
+		history, err = api.GetChannelHistory(ID, historyParams)
+		if err != nil{
+			return err
+		}
+		return nil
+	},retry.Attempts(10),retry.Delay(1000))
 	check(err)
 	messages := history.Messages
 	latest := messages[len(messages)-1].Timestamp
@@ -282,7 +294,13 @@ func fetchChannelHistory(api *slack.Client, ID string) []slack.Message {
 		}
 
 		historyParams.Latest = latest
-		history, err = api.GetChannelHistory(ID, historyParams)
+		err := retry.Do(func() error {
+			history, err = api.GetChannelHistory(ID, historyParams)
+			if err != nil{
+				return err
+			}
+			return nil
+		},retry.Attempts(10),retry.Delay(1000))
 		check(err)
 		length := len(history.Messages)
 		if length > 0 {
